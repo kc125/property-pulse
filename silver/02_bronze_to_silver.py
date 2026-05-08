@@ -12,7 +12,7 @@ adls_name = dbutils.secrets.get(scope = "property-pulse-scope", key = "adls-acco
 spark.conf.set(f"fs.azure.account.key.{adls_name}.dfs.core.windows.net", adls_key)
 print("Secrets Loaded") 
 
-
+# Silver Layer V2 - AMc terminal push test and removed the wrong path with updating the key for adls key
 
 # COMMAND ----------
 
