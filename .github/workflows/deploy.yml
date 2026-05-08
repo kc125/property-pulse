@@ -1,0 +1,94 @@
+name: Property Pulse CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+# ── Job 1: Lint ─────────────────────────────
+  lint:
+    name: 'Stage 1 - Lint Check'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run Linter
+        run: |
+          flake8 bronze/ silver/ gold/ \
+            --max-line-length=100 \
+            --ignore=E501,W503
+
+# ── Job 2: Unit Tests ───────────────────────
+  test:
+    name: 'Stage 2 - Unit Tests'
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pyspark
+
+      - name: Run Tests
+        run: pytest tests/ -v
+
+# ── Job 3: Deploy to Databricks ─────────────
+  deploy:
+    name: 'Stage 3 - Deploy to Databricks'
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Databricks CLI
+        run: pip install databricks-cli
+
+      - name: Deploy Notebooks
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          databricks configure --token <<EOF
+          $DATABRICKS_HOST
+          $DATABRICKS_TOKEN
+          EOF
+
+          databricks workspace import \
+            bronze/01_stream_to_bronze.py \
+            /Repos/property-pulse/bronze/01_stream_to_bronze \
+            --language PYTHON --overwrite
+
+          databricks workspace import \
+            silver/02_bronze_to_silver.py \
+            /Repos/property-pulse/silver/02_bronze_to_silver \
+            --language PYTHON --overwrite
+
+          databricks workspace import \
+            gold/03_silver_to_gold.py \
+            /Repos/property-pulse/gold/03_silver_to_gold \
+            --language PYTHON --overwrite
+
+          echo "✅ All notebooks deployed!"
