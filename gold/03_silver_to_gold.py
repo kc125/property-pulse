@@ -1,5 +1,7 @@
 # Databricks notebook source
 ## import & secrets
+#Gold layer PR test 
+# Added by Tharun KC
 
 from pyspark.sql.functions import(
     col, avg, count, max, min, sum, lit, udf, explode, split, length, trim, regexp_replace,
@@ -165,4 +167,5 @@ print("top cities active written!")
 
 
 # COMMAND ----------
+
 
