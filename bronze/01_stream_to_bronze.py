@@ -1,0 +1,90 @@
+# Databricks notebook source
+# Fetch secrets from AKV via secret scope
+eh_conn_str = dbutils.secrets.get(
+    scope = "property-pulse-scope",
+    key = "eventhub-connection-string"     
+)
+
+adls_key = dbutils.secrets.get(
+    scope = "property-pulse-scope",
+    key = "adls-account-key"
+)
+
+adls_name = dbutils.secrets.get(
+    scope = "property-pulse-scope",
+    key = "adls-account-name"
+)
+
+#Mount ADLS Gen2
+
+spark.conf.set(f"fs.azure.account.key.{adls_name}.dfs.core.windows.net", adls_key)
+
+#Event HUbs Config
+
+eh_namespace = "property-pulse-ns"
+eh_name = "property-events"
+eh_consumer = "$Default"
+
+connectionString = f"{eh_conn_str};EntityPath={eh_name}"
+
+ehConf = {
+    "eventhubs.connectionString" : sc._jvm.org.apache.spark.eventhubs.EventHubsUtils.encrypt(connectionString),
+    "eventhubs.consumerGroup" : eh_consumer,
+}
+
+
+# COMMAND ----------
+
+#Read stream from Eventhubs
+
+import time
+
+raw_stream = spark.readStream.format("eventhubs")\
+    .options(**ehConf)\
+        .load()
+
+
+
+# COMMAND ----------
+
+from pyspark.sql.functions import col, from_json
+from pyspark.sql.types import (StructType, StructField, StringType, LongType,
+                               IntegerType,TimestampType)
+
+#Define Schema matching our payload
+
+schema = StructType([
+    StructField("listing_id", StringType(), True),
+    StructField("event_type", StringType(), True),
+    StructField("city", StringType(), True),
+    StructField("locality", StringType(), True),
+    StructField("price",       LongType(),    True),
+    StructField("bedrooms",    IntegerType(), True),
+    StructField("area_sqft",   IntegerType(), True),
+    StructField("agent_id",    StringType(),  True),
+    StructField("timestamp",   StringType(),  True),
+    StructField("source",      StringType(),  True)
+])
+
+#parse JSON from Body Column
+
+parsed_stream = raw_stream\
+    .select(from_json(col("body").cast("string"),
+                      schema).alias("data")).select("data.*")
+    
+#write stream to bronze delta table 
+
+bronze_path = f"abfss://property-data@{adls_name}.dfs.core.windows.net/bronze/property_events"
+
+query = parsed_stream.writeStream.format("delta")\
+    .outputMode("append")\
+        .option("checkpointLocation", f"{bronze_path}/_checkpoint")\
+            .start(bronze_path)
+
+print("Bronze Stream Started!")
+print(f" Writing to : {bronze_path}")
+
+#query.awaitTermination()
+time.sleep(60)
+query.stop()
+print(f"Stream stopped after 60 seconds")
