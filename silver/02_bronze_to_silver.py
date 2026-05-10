@@ -10,6 +10,7 @@ adls_key = dbutils.secrets.get(scope = "property-pulse-scope", key = "adls-accou
 adls_name = dbutils.secrets.get(scope = "property-pulse-scope", key = "adls-account-name")
 
 spark.conf.set(f"fs.azure.account.key.{adls_name}.dfs.core.windows.net", adls_key)
+spark.conf.set("spark.sql.shuffle.partitions", "8")
 print("Secrets Loaded") 
 
 
