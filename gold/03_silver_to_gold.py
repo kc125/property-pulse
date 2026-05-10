@@ -1,8 +1,6 @@
 # Databricks notebook source
 ## import & secrets
-
-
-## Final test - Azure CLI ppush  - Testing CLI workflow
+import time
 
 from pyspark.sql.functions import(
     col, avg, count, max, min, sum, lit, udf, explode, split, length, trim, regexp_replace,
@@ -169,3 +167,190 @@ print("top cities active written!")
 
 # COMMAND ----------
 
+# Enable DELETION Vector on Gold tables
+
+print("Enabling Deletion vectors")
+print("-" * 40)
+
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_1}`
+          SET TBLPROPERTIES (
+              'delta.enableChangeDataFeed' = 'true',
+              'delta.enableDeletionVectors' = 'true'
+          )
+          """)
+
+print("Deletion vectorr: avg_price_by_city")
+
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_2}`
+          SET TBLPROPERTIES (
+              'delta.enableChangeDataFeed' = 'true',
+              'delta.enableDeletionVectors' = 'true'
+          )
+          """)
+
+print("Deletion vectorr: listing_count")
+
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_3}`
+          SET TBLPROPERTIES (
+              'delta.enableChangeDataFeed' = 'true',
+              'delta.enableDeletionVectors' = 'true'
+          )
+          """)
+
+print("Deletion vectorr: price_trend")
+
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_4}`
+          SET TBLPROPERTIES(
+              'delta.enableChangeDataFeed' = 'true',
+              'delta.enableDeletionVectors' = 'true'
+          )
+""")
+
+print("Deletion vectorr: top_cities")
+print(":delete vectors enabled")
+print("-"*40)
+
+# COMMAND ----------
+
+# DBTITLE 1,Untitled
+#optimize zorder 
+
+import builtins
+
+print(f"Running optimize and Zorder")
+print("-"*40)
+
+start = time.time()
+spark.sql(f"""
+          OPTIMIZE delta.`{gold_path_1}`
+          ZORDER BY (city)
+          """)
+
+print(f"avg_price_by_city : {builtins.round(time.time() - start, 2)}s")
+
+# COMMAND ----------
+
+# DBTITLE 1,Untitled
+import builtins
+
+start = time.time()
+spark.sql(f"""
+          OPTIMIZE delta.`{gold_path_2}`
+          ZORDER BY (event_type)
+          """)
+
+print(f"listing_count : {builtins.round(time.time() - start, 2)}s")
+
+start = time.time()
+spark.sql(f"""
+          OPTIMIZE delta.`{gold_path_3}`
+          ZORDER BY (city)
+          """)
+
+print(f"price_trend : {builtins.round(time.time() - start, 2)}s")
+
+start = time.time()
+spark.sql(f"""
+          OPTIMIZE delta.`{gold_path_4}`
+          ZORDER BY (city)
+          """)
+
+print(f"top_cities : {builtins.round(time.time() - start, 2)}s")
+print("-"*40)
+print( "All gold tables optimized")
+
+# COMMAND ----------
+
+#vacuum - Clean old files
+
+print(f" Running Vacuum..")
+print("-" * 40)
+spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+
+spark.sql(f"""
+          VACUUM delta.`{gold_path_1}` RETAIN 168 HOURS
+          """)
+
+
+spark.sql(f"""
+          VACUUM delta.`{gold_path_2}` RETAIN 168 HOURS
+          """)
+
+spark.sql(f"""
+          VACUUM delta.`{gold_path_3}` RETAIN 168 HOURS
+          """)
+
+spark.sql(f"""
+          VACUUM delta.`{gold_path_4}` RETAIN 168 HOURS
+          """)
+
+spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "true")
+
+print("-"*40)
+print(f"Vacuum Complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Untitled
+#verify Hostory
+
+print("Table operation histroy")
+print("-"*40)
+
+gold_tables = {
+    "avg_price_by_city"  : gold_path_1,
+    "listing_count" : gold_path_2,
+    "price_trend" : gold_path_3,
+    "top_cities" : gold_path_4
+}
+
+for name, path in gold_tables.items():
+    print(f"{name}:")
+    spark.sql(f"""
+              DESCRIBE HISTORY
+              delta.`{path}`
+              LIMIT 5""").select(
+                      "operation",
+                      "operationParameters",
+                      "timestamp",
+                      "version"
+                      ).show(truncate=False)
+print("-"*40)
+print("History Verified")
+                      
+
+# COMMAND ----------
+
+#performance test
+
+import time
+
+print("Performance test")
+print("-"*40)
+
+start = time.time()
+spark.sql(f"""
+          SELECT *
+          FROM delta.`{gold_path_1}`
+          WHERE city = 'BENGALURU'
+          """).show(truncate = False)
+
+print(f"avg_price_by_city : {builtins.round(time.time() - start, 2)}s")
+print("Zorder by city = data skipping")
+
+start = time.time()
+spark.sql(f"""
+          SELECT * FROM delta.`{gold_path_3}`
+          WHERE locality = 'Whitefield'
+          ORDER BY event_date DESC
+          """).show(truncate = False)
+
+print(f"locality query time: {builtins.round(time.time() - start, 2)}s")
+print("Zorder by locality = data skipping")
+
+print("-"*40)
+print("Performance test complete")
