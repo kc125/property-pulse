@@ -38,6 +38,7 @@ print(f" Silver record Count: {silver_df.count()}")
 silver_df.show(3,truncate=False)
 
 
+
 # COMMAND ----------
 
 #Average price by city
@@ -183,11 +184,21 @@ spark.sql(f"""
 print("Deletion vectorr: avg_price_by_city")
 
 spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_1}`
+          CLUSTER BY (city)
+          """)
+
+spark.sql(f"""
           ALTER TABLE delta.`{gold_path_2}`
           SET TBLPROPERTIES (
               'delta.enableChangeDataFeed' = 'true',
               'delta.enableDeletionVectors' = 'true'
           )
+          """)
+
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_2}`
+          CLUSTER BY (event_type)
           """)
 
 print("Deletion vectorr: listing_count")
@@ -203,65 +214,24 @@ spark.sql(f"""
 print("Deletion vectorr: price_trend")
 
 spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_3}`
+          CLUSTER BY (locality, event_date)
+          """)
+
+spark.sql(f"""
           ALTER TABLE delta.`{gold_path_4}`
           SET TBLPROPERTIES(
               'delta.enableChangeDataFeed' = 'true',
               'delta.enableDeletionVectors' = 'true'
           )
 """)
-
+spark.sql(f"""
+          ALTER TABLE delta.`{gold_path_4}`
+          CLUSTER BY(city)
+          """)
 print("Deletion vectorr: top_cities")
 print(":delete vectors enabled")
 print("-"*40)
-
-# COMMAND ----------
-
-# DBTITLE 1,Untitled
-#optimize zorder 
-
-import builtins
-
-print(f"Running optimize and Zorder")
-print("-"*40)
-
-start = time.time()
-spark.sql(f"""
-          OPTIMIZE delta.`{gold_path_1}`
-          ZORDER BY (city)
-          """)
-
-print(f"avg_price_by_city : {builtins.round(time.time() - start, 2)}s")
-
-# COMMAND ----------
-
-# DBTITLE 1,Untitled
-import builtins
-
-start = time.time()
-spark.sql(f"""
-          OPTIMIZE delta.`{gold_path_2}`
-          ZORDER BY (event_type)
-          """)
-
-print(f"listing_count : {builtins.round(time.time() - start, 2)}s")
-
-start = time.time()
-spark.sql(f"""
-          OPTIMIZE delta.`{gold_path_3}`
-          ZORDER BY (city)
-          """)
-
-print(f"price_trend : {builtins.round(time.time() - start, 2)}s")
-
-start = time.time()
-spark.sql(f"""
-          OPTIMIZE delta.`{gold_path_4}`
-          ZORDER BY (city)
-          """)
-
-print(f"top_cities : {builtins.round(time.time() - start, 2)}s")
-print("-"*40)
-print( "All gold tables optimized")
 
 # COMMAND ----------
 
@@ -325,32 +295,68 @@ print("History Verified")
 
 # COMMAND ----------
 
-#performance test
+# DBTITLE 1,Untitled
+# ══════════════════════════════════════
+# TRIGGER CLUSTERING WITH OPTIMIZE
+# ══════════════════════════════════════
+import time
+import builtins
 
+print("⚡ Triggering clustering...")
+print("─" * 40)
+
+for name, path in gold_tables.items():
+    start = time.time()
+    spark.sql(f"""
+        OPTIMIZE delta.`{path}`
+    """)
+    elapsed = builtins.round(time.time() - start, 2)
+    print(f"✅ {name}: {elapsed}s")
+
+print("─" * 40)
+print("🏆 Clustering applied to all tables!")
+
+# COMMAND ----------
+
+# ══════════════════════════════════════
+# PERFORMANCE TEST
+# Before vs After Liquid Clustering!
+# ══════════════════════════════════════
 import time
 
-print("Performance test")
-print("-"*40)
+print("⚡ PERFORMANCE TEST")
+print("─" * 40)
 
+# Test 1 → City filter on Silver
 start = time.time()
-spark.sql(f"""
-          SELECT *
-          FROM delta.`{gold_path_1}`
-          WHERE city = 'BENGALURU'
-          """).show(truncate = False)
+result1 = spark.sql(f"""
+    SELECT COUNT(*) as count
+    FROM delta.`{silver_path}`
+    WHERE city = 'BENGALURU'
+    AND event_type = 'NEW_LISTING'
+""")
+result1.show()
+print(f"✅ Silver city+event filter: {builtins.round(time.time()-start, 2)}s")
 
-print(f"avg_price_by_city : {builtins.round(time.time() - start, 2)}s")
-print("Zorder by city = data skipping")
-
+# Test 2 → City filter on Gold
 start = time.time()
-spark.sql(f"""
-          SELECT * FROM delta.`{gold_path_3}`
-          WHERE locality = 'Whitefield'
-          ORDER BY event_date DESC
-          """).show(truncate = False)
+result2 = spark.sql(f"""
+    SELECT *
+    FROM delta.`{gold_path_1}`
+    WHERE city = 'MUMBAI'
+""")
+result2.show(truncate=False)
+print(f"✅ Gold city filter: {builtins.round(time.time()-start, 2)}s")
 
-print(f"locality query time: {builtins.round(time.time() - start, 2)}s")
-print("Zorder by locality = data skipping")
+# Test 3 → Locality filter on Gold
+start = time.time()
+result3 = spark.sql(f"""
+    SELECT *
+    FROM delta.`{gold_path_3}`
+    WHERE locality = 'Whitefield'
+""")
+result3.show(truncate=False)
+print(f"✅ Gold locality filter: {builtins.round(time.time()-start, 2)}s")
 
-print("-"*40)
-print("Performance test complete")
+print("─" * 40)
+print("🏆 Performance test complete!")
